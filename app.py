@@ -4,16 +4,21 @@ from playwright.sync_api import sync_playwright
 from pydantic import BaseModel, Field
 from crewai import Agent, Task, Crew, Process, LLM
 from dotenv import load_dotenv
+
 load_dotenv()
-# 1. Connect CrewAI to our verified Gemini Brain
-# CrewAI natively looks for the 'GEMINI_API_KEY' environment variable we just verified.
+
+# ============================================================
+# 1. GEMINI BRAIN
+# ============================================================
 gemini_brain = LLM(
-    model="gemini/gemini-2.5-flash",
+    model="gemini/gemini-2.0-flash",
     temperature=0.2,
-    max_retries=5  # Forces the agent to automatically pause and retry if it hits a rate limit
+    max_retries=5
 )
-# 2. Define the Pydantic Data Contract
-# This acts as a strict structure that the final agent MUST fill out before finishing.
+
+# ============================================================
+# 2. PYDANTIC SCHEMA (8 FIELDS)
+# ============================================================
 class TechnicalInsightSchema(BaseModel):
     dataset_title: str = Field(
         description="The clean, formal name or primary focus of the analyzed technical source."
@@ -27,19 +32,34 @@ class TechnicalInsightSchema(BaseModel):
     target_audience: str = Field(
         description="The primary demographic who benefits from this data (e.g., Computer Vision Engineers, Financial Analysts)."
     )
+    twitter_thread: str = Field(
+        description="A 5-tweet X/Twitter thread with hooks, key insights with numbers, and a CTA. Each tweet under 280 chars with line breaks."
+    )
+    github_readme_summary: str = Field(
+        description="A concise GitHub README-style markdown summary with emoji headers, dataset description, key stats table, feature list, and suggested models."
+    )
+    youtube_script_outline: str = Field(
+        description="A 5-minute YouTube tutorial script outline with timestamps (0:00 Intro, 0:30 Dataset, 1:30 EDA, 3:00 Model, 4:30 Results) and visual cues."
+    )
+    content_gap_analysis: str = Field(
+        description="Analysis of what existing articles on this dataset miss and the unique angle our content takes to stand out."
+    )
+
+# ============================================================
+# 3. TOOLS
+# ============================================================
 from crewai.tools import tool
-from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import time
 import multiprocessing
+
 def _isolated_playwright_worker(url, return_dict):
-    """An isolated background process worker that handles Playwright completely outside Streamlit's event loop."""
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(url, wait_until="networkidle", timeout=25000)
-            time.sleep(3) # Wait for JavaScript data matrices to fully render
+            time.sleep(3)
             return_dict['html'] = page.content()
             browser.close()
     except Exception as e:
@@ -49,28 +69,19 @@ def _isolated_playwright_worker(url, return_dict):
 def scrape_technical_url(url: str) -> str:
     """Launches a headless browser in a safe, isolated system process to extract raw metadata text from technical web links."""
     try:
-        # Rate limit safety pacing delay for Google Gemini Free Tier
         time.sleep(5)
-        
-        # Use a multiprocessing Manager to share string data safely across isolated system tasks
         manager = multiprocessing.Manager()
         return_dict = manager.dict()
-        
-        # Spawn the isolated background browser worker thread
         process = multiprocessing.Process(target=_isolated_playwright_worker, args=(url, return_dict))
         process.start()
-        process.join() # Wait for the background browser tasks to cleanly finish execution
+        process.join()
         
         if 'error' in return_dict:
-            return f"Scraping thread ran into an unexpected interruption: {return_dict['error']}"
-            
+            return f"Scraping error: {return_dict['error']}"
         if 'html' not in return_dict:
-            return "Failed to secure data: Web browser execution context closed prematurely."
+            return "Failed to retrieve page content."
             
-        # Pass the cleanly gathered HTML to BeautifulSoup for processing
         soup = BeautifulSoup(return_dict['html'], 'html.parser')
-        
-        # Eliminate structural noise and advertising trackers to save token bandwidth
         for element in soup(["script", "style", "footer", "nav", "header", "aside", "svg"]):
             element.extract()
             
@@ -80,12 +91,12 @@ def scrape_technical_url(url: str) -> str:
         final_clean_text = '\n'.join(chunk for chunk in non_empty_chunks if chunk)
         
         return final_clean_text[:12000]
-        
     except Exception as e:
-        return f"Failed to gather data from the dynamic site due to error: {str(e)}"
-# 4. Constructing the Expert AI Personnel
+        return f"Failed to scrape: {str(e)}"
 
-# Agent 1: The Data Specialist
+# ============================================================
+# 4. AGENTS
+# ============================================================
 data_analyst = Agent(
     role="Principal Data & Schema Architect",
     goal="Ingest raw webpage text of technical datasets, identify core features/columns, targets, and summarize the underlying technical problem.",
@@ -94,12 +105,11 @@ data_analyst = Agent(
         "and metadata meanings out of messy, unstructured webpage scrapes. You ignore website menus "
         "and focus purely on hard technical specifications."
     ),
-    tools=[scrape_technical_url],  # Giving this agent the web scraping tool we built
-    verbose=True,                  # Logs the agent's internal "thinking process" to the terminal live
+    tools=[scrape_technical_url],
+    verbose=True,
     llm=gemini_brain
 )
 
-# Agent 2: The Content Creator
 tech_writer = Agent(
     role="Lead Developer Relations Engineer",
     goal="Translate raw column metadata and database schemas into highly engaging, educational technical blog posts and promotional social content.",
@@ -108,52 +118,57 @@ tech_writer = Agent(
         "boring documentation schemas and turning them into fascinating, readable guides for developers on LinkedIn and Medium. "
         "You know exactly how to structure hooks, line breaks, and clear technical summaries."
     ),
-    verbose=True,                  # Logs this agent's thoughts too
-    llm=gemini_brain               # This agent doesn't need the web scraper tool; it just processes the analyst's output
-)
-# 5. Define the Target URL (The live link we want to analyze)
-# For this test, we use a classic data science asset: The Iris Dataset documentation.
-target_tech_link = "https://www.kaggle.com/datasets/yasserh/housing-prices-dataset"
-
-# 6. Mission Definitions
-
-task_analyze_schema = Task(
-    description=(
-        f"Visit this live URL: {target_tech_link} and thoroughly extract all information about the "
-        "dataset structure, its features, target columns, classification attributes, and documentation summary."
-    ),
-    expected_output=(
-        "A highly organized raw architectural breakdown of the dataset properties, feature rows, "
-        "and technical context stripped of webpage clutter."
-    ),
-    agent=data_analyst  # Linked directly to our Principal Data Architect agent
+    verbose=True,
+    llm=gemini_brain
 )
 
-task_generate_content = Task(
-    description=(
-        "Review the factual dataset breakdown provided by the analyst. Using that structured insight, "
-        "generate a comprehensive technical blog post and an engaging LinkedIn promotional announcement."
-    ),
-    expected_output=(
-        "Fully formatted, ready-to-publish educational marketing materials mapping perfectly "
-        "to the required TechnicalInsightSchema JSON fields."
-    ),
-    agent=tech_writer,               # Linked directly to our DevRel writer agent
-    output_json=TechnicalInsightSchema  # Forces the output to comply exactly with our Pydantic Data Contract!
-)
-# 7. Assemble the AI Team and Fire Ignition
+# ============================================================
+# 5. CREW BUILDER FUNCTION (for dashboard.py to use)
+# ============================================================
+def create_crew(target_url: str):
+    """Creates and returns the crew for a given URL."""
+    
+    task_analyze_schema = Task(
+        description=(
+            f"Visit this live URL: {target_url} and thoroughly extract all information about the "
+            "dataset structure, its features, target columns, classification attributes, and documentation summary."
+        ),
+        expected_output=(
+            "A highly organized raw architectural breakdown of the dataset properties, feature rows, "
+            "and technical context stripped of webpage clutter."
+        ),
+        agent=data_analyst
+    )
 
-content_crew = Crew(
-    agents=[data_analyst, tech_writer],
-    tasks=[task_analyze_schema, task_generate_content],
-    process=Process.sequential  # Ensures Task 1 completely finishes and hands its data to Task 2
-)
+    task_generate_content = Task(
+        description=(
+            "Review the factual dataset breakdown provided by the analyst. Generate ALL of the following outputs:\n\n"
+            "1. TECHNICAL BLOG POST (400+ words): Comprehensive markdown with dataset overview, key insights, ML use cases, and conclusions.\n"
+            "2. LINKEDIN PROMOTION: Hook in first 2 lines, 3-4 bullet points of key findings, CTA, and relevant hashtags. Conversational but authoritative.\n"
+            "3. TWITTER/X THREAD (5 tweets): Tweet 1 = Hook, Tweet 2-4 = Key insights with specific numbers, Tweet 5 = CTA + link. Each under 280 chars. Use line breaks.\n"
+            "4. GITHUB README SUMMARY: Clean markdown with emoji headers, dataset description, key stats table, feature list, and suggested models. Copy-paste ready.\n"
+            "5. YOUTUBE SCRIPT OUTLINE: 5-minute tutorial with timestamps (0:00 Intro, 0:30 Dataset Overview, 1:30 EDA Walkthrough, 3:00 Model Building, 4:30 Results). Include visual cues.\n"
+            "6. CONTENT GAP ANALYSIS: What do existing articles on this dataset miss? What unique angle should we take to stand out and go viral?"
+        ),
+        expected_output=(
+            "Fully formatted, ready-to-publish educational marketing materials mapping perfectly "
+            "to the required TechnicalInsightSchema JSON fields."
+        ),
+        agent=tech_writer,
+        output_json=TechnicalInsightSchema
+    )
+    
+    return Crew(
+        agents=[data_analyst, tech_writer],
+        tasks=[task_analyze_schema, task_generate_content],
+        process=Process.sequential
+    )
 
+# For direct testing
 if __name__ == "__main__":
+    target_url = "https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud"
     print("🛰️ Ingesting live data target via Agentic Loop...\n")
-    
-    # Kickoff starts the entire autonomous pipeline!
-    final_output = content_crew.kickoff()
-    
+    crew = create_crew(target_url)
+    final_output = crew.kickoff()
     print("\n🏆 CRITICAL STRUCTURAL OUTPUT SECURED (JSON) 🏆\n")
     print(final_output.raw)
