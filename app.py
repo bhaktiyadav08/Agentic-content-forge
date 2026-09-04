@@ -55,45 +55,139 @@ from bs4 import BeautifulSoup
 import time
 import multiprocessing
 
+
 def _isolated_playwright_worker(url, return_dict):
-    """An isolated background process worker that handles Playwright."""
+    """Use Playwright in an isolated process to retrieve dynamic webpages."""
+    browser = None
+
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            time.sleep(5)
-            return_dict['html'] = page.content()
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage"
+                ]
+            )
+
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1366, "height": 768}
+            )
+
+            page = context.new_page()
+
+            # Do not wait for every network request to finish.
+            # Kaggle pages can keep network connections active.
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=45000
+            )
+
+            # Give JavaScript-rendered content time to appear.
+            time.sleep(8)
+
+            # Capture the rendered page.
+            return_dict["html"] = page.content()
+
+            # Also capture visible text directly from the browser.
+            try:
+                return_dict["visible_text"] = page.locator("body").inner_text(
+                    timeout=10000
+                )
+            except Exception:
+                return_dict["visible_text"] = ""
+
             browser.close()
+
     except Exception as e:
-        return_dict['error'] = str(e)
+        return_dict["error"] = str(e)
+
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
 
 @tool("Universal Tech Webpage Scraper")
 def scrape_technical_url(url: str) -> str:
-    """Launches a headless browser to extract raw metadata text from technical web links."""
+    """
+    Scrapes dynamic technical webpages such as Kaggle, GitHub,
+    and technical documentation using a headless browser.
+    """
+
     try:
-        time.sleep(5)
         manager = multiprocessing.Manager()
         return_dict = manager.dict()
-        process = multiprocessing.Process(target=_isolated_playwright_worker, args=(url, return_dict))
+
+        process = multiprocessing.Process(
+            target=_isolated_playwright_worker,
+            args=(url, return_dict)
+        )
+
         process.start()
-        process.join()
-        
-        if 'error' in return_dict:
+
+        # Prevent a failed webpage from hanging the entire Crew.
+        process.join(timeout=60)
+
+        if process.is_alive():
+            process.terminate()
+            process.join()
+
+            return (
+                "Scraping error: The webpage took too long to load. "
+                "The source could not be retrieved within 60 seconds."
+            )
+
+        # Prefer the browser's visible text when available.
+        visible_text = return_dict.get("visible_text", "").strip()
+
+        if visible_text:
+            cleaned_text = "\n".join(
+                line.strip()
+                for line in visible_text.splitlines()
+                if line.strip()
+            )
+
+            if len(cleaned_text) >= 200:
+                return cleaned_text[:12000]
+
+        # Fallback: parse the rendered HTML with BeautifulSoup.
+        html = return_dict.get("html", "")
+
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+
+            for element in soup(
+                ["script", "style", "footer", "nav",
+                 "header", "aside", "svg"]
+            ):
+                element.decompose()
+
+            text_content = soup.get_text(separator="\n")
+
+            clean_lines = [
+                line.strip()
+                for line in text_content.splitlines()
+                if line.strip()
+            ]
+
+            final_clean_text = "\n".join(clean_lines)
+
+            if len(final_clean_text) >= 200:
+                return final_clean_text[:12000]
+
+        if "error" in return_dict:
             return f"Scraping error: {return_dict['error']}"
-        if 'html' not in return_dict:
-            return "Failed to retrieve page content."
-            
-        soup = BeautifulSoup(return_dict['html'], 'html.parser')
-        for element in soup(["script", "style", "footer", "nav", "header", "aside", "svg"]):
-            element.extract()
-            
-        text_content = soup.get_text(separator=' ')
-        clean_lines = (line.strip() for line in text_content.splitlines())
-        non_empty_chunks = (phrase.strip() for line in clean_lines for phrase in line.split("  "))
-        final_clean_text = '\n'.join(chunk for chunk in non_empty_chunks if chunk)
-        
-        return final_clean_text[:12000]
+
+        return "Failed to retrieve meaningful page content."
+
     except Exception as e:
         return f"Failed to scrape: {str(e)}"
 
