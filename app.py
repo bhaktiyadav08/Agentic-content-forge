@@ -53,23 +53,65 @@ class TechnicalInsightSchema(BaseModel):
 # ============================================================
 from crewai.tools import tool
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+from urllib.request import Request, urlopen
+import multiprocessing
 import time
 
 
-@tool("Universal Tech Webpage Scraper")
-def scrape_technical_url(url: str) -> str:
-    """
-    Scrapes dynamic technical webpages such as Kaggle, GitHub,
-    and technical documentation using Playwright.
-    """
+def _http_scrape(url):
+    try:
+        request = Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                )
+            }
+        )
+
+        with urlopen(request, timeout=20) as response:
+            html = response.read().decode("utf-8", errors="ignore")
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        for element in soup(
+            ["script", "style", "footer", "nav", "header", "aside", "svg"]
+        ):
+            element.decompose()
+
+        text = soup.get_text(separator="\n")
+
+        lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+        ]
+
+        cleaned = "\n".join(lines)
+
+        if len(cleaned) >= 500:
+            return cleaned[:12000]
+
+        return ""
+
+    except Exception:
+        return ""
+
+
+def _playwright_scrape(url, return_dict):
+
+    browser = None
 
     try:
-        print(f"Starting scraper for: {url}")
 
         with sync_playwright() as p:
 
             browser = p.chromium.launch(
                 headless=True,
+                executable_path="/usr/bin/chromium",
                 args=[
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
@@ -91,111 +133,105 @@ def scrape_technical_url(url: str) -> str:
 
             page = context.new_page()
 
-            print("Opening webpage...")
-
             page.goto(
                 url,
                 wait_until="domcontentloaded",
-                timeout=45000
+                timeout=40000
             )
 
-            print("Page loaded. Waiting for dynamic content...")
+            page.wait_for_timeout(5000)
 
-            page.wait_for_timeout(8000)
+            visible_text = page.locator("body").inner_text(
+                timeout=10000
+            )
 
-            # Get visible browser text
-            try:
-                visible_text = page.locator("body").inner_text(
-                    timeout=10000
-                )
-            except Exception:
-                visible_text = ""
-
-            # Get rendered HTML as fallback
-            html = page.content()
+            return_dict["text"] = visible_text
 
             browser.close()
 
-        # ----------------------------------------------------
-        # Prefer visible text
-        # ----------------------------------------------------
-        if visible_text and len(visible_text.strip()) >= 200:
+    except Exception as e:
 
-            cleaned_text = "\n".join(
+        return_dict["error"] = str(e)
+
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+
+@tool("Universal Tech Webpage Scraper")
+def scrape_technical_url(url: str) -> str:
+
+    # -------------------------------------------------
+    # METHOD 1: Normal HTTP request
+    # -------------------------------------------------
+
+    http_content = _http_scrape(url)
+
+    if http_content:
+
+        return http_content
+
+
+    # -------------------------------------------------
+    # METHOD 2: Browser rendering
+    # -------------------------------------------------
+
+    try:
+
+        manager = multiprocessing.Manager()
+
+        return_dict = manager.dict()
+
+        process = multiprocessing.Process(
+            target=_playwright_scrape,
+            args=(url, return_dict)
+        )
+
+        process.start()
+
+        process.join(timeout=55)
+
+        if process.is_alive():
+
+            process.terminate()
+            process.join()
+
+            return (
+                "Scraping error: The webpage took too long to load."
+            )
+
+        text = return_dict.get("text", "").strip()
+
+        if text:
+
+            lines = [
                 line.strip()
-                for line in visible_text.splitlines()
-                if line.strip()
-            )
-
-            print(
-                f"Scraping successful. Extracted "
-                f"{len(cleaned_text)} characters."
-            )
-
-            return cleaned_text[:12000]
-
-        # ----------------------------------------------------
-        # HTML fallback
-        # ----------------------------------------------------
-        if html:
-
-            soup = BeautifulSoup(
-                html,
-                "html.parser"
-            )
-
-            for element in soup(
-                [
-                    "script",
-                    "style",
-                    "footer",
-                    "nav",
-                    "header",
-                    "aside",
-                    "svg"
-                ]
-            ):
-                element.decompose()
-
-            text_content = soup.get_text(
-                separator="\n"
-            )
-
-            clean_lines = [
-                line.strip()
-                for line in text_content.splitlines()
+                for line in text.splitlines()
                 if line.strip()
             ]
 
-            final_clean_text = "\n".join(
-                clean_lines
-            )
+            cleaned = "\n".join(lines)
 
-            if len(final_clean_text) >= 200:
+            if len(cleaned) >= 200:
 
-                print(
-                    f"HTML scraping successful. Extracted "
-                    f"{len(final_clean_text)} characters."
-                )
+                return cleaned[:12000]
 
-                return final_clean_text[:12000]
 
-        return (
-            "SCRAPING_FAILED: "
-            "The webpage loaded but did not contain enough "
-            "readable content."
-        )
+        error = return_dict.get("error")
+
+        if error:
+
+            return f"Scraping error: {error}"
+
+
+        return "Failed to retrieve meaningful page content."
+
 
     except Exception as e:
 
-        print(
-            f"SCRAPER ERROR: {type(e).__name__}: {str(e)}"
-        )
-
-        return (
-            f"SCRAPING_FAILED: "
-            f"{type(e).__name__}: {str(e)}"
-        )
+        return f"Scraping error: {str(e)}"
 # ============================================================
 # 4. AGENTS
 # ============================================================
