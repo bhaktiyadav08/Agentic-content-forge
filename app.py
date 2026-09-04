@@ -15,7 +15,7 @@ gemini_brain = LLM(
     temperature=0.2,
     api_key=os.getenv("OPENROUTER_API_KEY"),
     max_retries=2,
-    max_tokens=3500
+    max_tokens=3000
 )
 
 # ============================================================
