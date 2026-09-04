@@ -105,7 +105,8 @@ if st.button("🚀 Analyze & Generate Content", type="primary"):
       if not os.getenv("OPENROUTER_API_KEY"):
         st.error("🔑 OPENROUTER_API_KEY not found in .env")
         st.stop()
-      raw_result = run_crew_cached(user_url)
+      crew = create_crew(user_url)
+      raw_result = crew.kickoff()
 
       elapsed = round(time.time() - start_time, 1)
 
