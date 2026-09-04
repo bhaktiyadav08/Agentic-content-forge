@@ -253,7 +253,6 @@ def scrape_technical_url(url: str) -> str:
 # ============================================================
 # 4. AGENTS
 # ============================================================
-
 data_analyst = Agent(
     role="Principal Data & Schema Architect",
     goal="Ingest raw webpage text of technical datasets, identify core features, columns, targets, dataset type, and summarize the underlying technical problem.",
@@ -266,9 +265,9 @@ data_analyst = Agent(
     ),
     tools=[scrape_technical_url],
     verbose=False,
-    llm=gemini_brain
+    llm=gemini_brain,
+    function_calling_llm=None
 )
-
 tech_writer = Agent(
     role="Lead Developer Relations Engineer",
     goal="Transform the factual dataset analysis into useful, platform-specific technical content.",
