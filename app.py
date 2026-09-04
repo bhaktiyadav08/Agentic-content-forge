@@ -61,8 +61,8 @@ def _isolated_playwright_worker(url, return_dict):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=25000)
-            time.sleep(3)
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            time.sleep(5)
             return_dict['html'] = page.content()
             browser.close()
     except Exception as e:
@@ -93,58 +93,111 @@ def scrape_technical_url(url: str) -> str:
         non_empty_chunks = (phrase.strip() for line in clean_lines for phrase in line.split("  "))
         final_clean_text = '\n'.join(chunk for chunk in non_empty_chunks if chunk)
         
-        return final_clean_text[:3000]
+        return final_clean_text[:12000]
     except Exception as e:
         return f"Failed to scrape: {str(e)}"
 
 # ============================================================
-# 4. SINGLE AGENT (REDUCES API CALLS FROM ~10 TO ~3)
+# 4. AGENTS
 # ============================================================
-# Agent 1: Data Analyst
+
 data_analyst = Agent(
     role="Principal Data & Schema Architect",
-    goal="Scrape and analyze dataset",
-    backstory="Expert data engineer",
+    goal="Ingest raw webpage text of technical datasets, identify core features, columns, targets, dataset type, and summarize the underlying technical problem.",
+    backstory=(
+        "You are an expert data engineer and machine learning analyst. "
+        "You carefully inspect scraped technical dataset information, identify "
+        "important columns, classes, targets, dataset characteristics, and "
+        "machine learning relevance. Never invent dataset-specific facts that "
+        "are not present in the supplied webpage content."
+    ),
     tools=[scrape_technical_url],
     verbose=False,
-    llm=gemini_brain,
-    max_iter=1,
-    max_rpm=1,
+    llm=gemini_brain
 )
 
-# Agent 2: Tech Writer  
 tech_writer = Agent(
     role="Lead Developer Relations Engineer",
-    goal="Write all content formats",
-    backstory="Expert DevRel writer",
+    goal="Transform the factual dataset analysis into useful, platform-specific technical content.",
+    backstory=(
+        "You are an experienced technical writer and developer advocate. "
+        "You turn technical dataset information into clear, accurate and "
+        "engaging content for developers and data scientists. "
+        "Use the actual dataset information provided by the analyst."
+    ),
     verbose=False,
-    llm=gemini_brain,
-    max_iter=1,
-    max_rpm=1,
+    llm=gemini_brain
 )
 # ============================================================
 # 5. SINGLE TASK (ALL OUTPUTS IN ONE CALL)
 # ============================================================
 def create_crew(target_url: str):
+    """Creates and returns the crew for a given URL."""
+
     task_analyze = Task(
-        description=f"Scrape {target_url} and summarize dataset structure",
-        expected_output="Structured dataset summary",
-        agent=data_analyst,
-    )
-    time.sleep(12)
-    task_write = Task(
-        description="Generate all 6 outputs in TechnicalInsightSchema format",
-        expected_output="JSON matching TechnicalInsightSchema",
-        agent=tech_writer,
-        output_json=TechnicalInsightSchema,
-    )
-    
-    return Crew(
-        agents=[data_analyst, tech_writer],
-        tasks=[task_analyze, task_write],
-        process=Process.sequential,
+        description=(
+            f"Visit this live URL: {target_url} and thoroughly extract all available "
+            "information about the dataset. Identify its title, dataset type, "
+            "features or classes, target variables, important statistics, structure, "
+            "and machine learning relevance. Use only factual information available "
+            "from the scraped page."
+        ),
+        expected_output=(
+            "A highly organized factual breakdown of the dataset, including its "
+            "name, type, structure, features/classes, target information, and "
+            "technical context."
+        ),
+        agent=data_analyst
     )
 
+    task_generate_content = Task(
+        description=(
+            "Review the factual dataset analysis provided by the analyst and generate "
+            "ALL of the following outputs.\n\n"
+
+            "1. TECHNICAL BLOG POST: Write a detailed technical article of at least "
+            "400 words. Include dataset overview, important characteristics, "
+            "technical insights, machine learning use cases, and conclusion.\n\n"
+
+            "2. LINKEDIN PROMOTION: Create an engaging LinkedIn post with a strong "
+            "opening hook, 3-4 useful technical insights, a clear CTA, and relevant "
+            "hashtags.\n\n"
+
+            "3. TWITTER/X THREAD: Create a 5-tweet thread. Tweet 1 should be a hook, "
+            "tweets 2-4 should contain concrete dataset insights, and tweet 5 should "
+            "contain a CTA. Keep each tweet under 280 characters.\n\n"
+
+            "4. GITHUB README SUMMARY: Create a concise copy-paste-ready Markdown "
+            "summary containing the dataset description, important characteristics, "
+            "key statistics where available, feature/class information, and "
+            "suggested machine learning approaches.\n\n"
+
+            "5. YOUTUBE SCRIPT OUTLINE: Create a 5-minute technical tutorial outline "
+            "with timestamps, including introduction, dataset overview, exploration, "
+            "ML approach, and results/use cases. Include visual cues.\n\n"
+
+            "6. CONTENT GAP ANALYSIS: Explain what existing generic content about "
+            "this dataset may miss and suggest a unique technical angle for the "
+            "generated content.\n\n"
+
+            "IMPORTANT: Use actual information from the dataset analysis. Do not "
+            "replace missing dataset information with generic statements about "
+            "Kaggle datasets. If a specific fact is unavailable, clearly state "
+            "that it was not available."
+        ),
+        expected_output=(
+            "Fully formatted, factual, ready-to-publish content mapped to every "
+            "field in TechnicalInsightSchema."
+        ),
+        agent=tech_writer,
+        output_json=TechnicalInsightSchema
+    )
+
+    return Crew(
+        agents=[data_analyst, tech_writer],
+        tasks=[task_analyze, task_generate_content],
+        process=Process.sequential
+    )
 # For direct testing
 if __name__ == "__main__":
     target_url = "https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud"
