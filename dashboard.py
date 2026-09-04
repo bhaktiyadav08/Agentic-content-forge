@@ -112,11 +112,7 @@ if st.button("🚀 Analyze & Generate Content", type="primary"):
 
       st.success(f"🎉 Analysis Complete! Generated all content in {elapsed} seconds.")
         
-        # Create crew with dynamic URL
-    crew = create_crew(user_url)
-        
-        # Run crew
-    raw_result = run_crew_cached(user_url)
+    
         
         # Extract result
     result_data = raw_result.json_dict if hasattr(raw_result, 'json_dict') else {}
