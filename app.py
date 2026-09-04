@@ -1,12 +1,27 @@
 import os
 from typing import List
+import sys
+import subprocess
+from pathlib import Path
 from playwright.sync_api import sync_playwright
 from pydantic import BaseModel, Field
 from crewai import Agent, Task, Crew, Process, LLM
 from dotenv import load_dotenv
 
 load_dotenv()
+# Ensure Playwright's Chromium browser is available
+def ensure_playwright_browser():
+    with sync_playwright() as p:
+        chromium_path = Path(p.chromium.executable_path)
 
+    if not chromium_path.exists():
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True
+        )
+
+
+ensure_playwright_browser()
 # ============================================================
 # 1. GEMINI BRAIN (BACK TO GEMINI - QUOTA RESETS TOMORROW)
 # ============================================================
