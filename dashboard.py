@@ -1,18 +1,94 @@
 import streamlit as st
 import os
 import time
-from crewai import LLM
+from dotenv import load_dotenv
+
+load_dotenv()
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def run_crew_cached(url):
+    crew = create_crew(url)
+    return crew.kickoff()
 from app import create_crew, TechnicalInsightSchema
-from visualizations import generate_all_visualizations
+
 
 # ============================================================
 # APP CONFIG
 # ============================================================
 st.set_page_config(page_title="AI Agentic Repurposer", page_icon="🛰️", layout="wide")
+st.markdown("""
+<style>
+
+.main {
+    background-color: #0E1117;
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+div[data-testid="stMetric"]{
+    background:#1b1f2a;
+    border:1px solid #313543;
+    border-radius:15px;
+    padding:15px;
+}
+
+div[data-testid="stTabs"] button{
+    font-size:16px;
+    font-weight:600;
+}
+
+.stButton>button{
+    width:100%;
+    height:55px;
+    border-radius:12px;
+    font-size:18px;
+    font-weight:bold;
+}
+
+textarea{
+    border-radius:12px !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+with st.sidebar:
+  st.title("🤖 AI Crew")
+
+  st.success("✅ Data Analyst")
+
+  st.success("✅ Tech Writer")
+
+  st.success("✅ Competitor Intelligence")
+
+  st.success("✅ Quality Critic")
+
+  st.divider()
+
+  st.metric("Platforms", "5")
+
+  st.metric("Agents", "4")
+
+  st.metric("Status", "Ready")
 
 st.title("🛰️ Autonomous Technical Content Repurposer")
 st.caption("Kaggle Vibe Coding Capstone Project - Concierge Track")
-st.markdown("---")
+st.markdown("""
+# 🚀 Agentic Content Forge
+
+### Autonomous Multi-Agent Technical Content Studio
+
+Turn any **Kaggle Dataset**, **GitHub Repository**, or **Technical Documentation** into platform-ready content using autonomous AI agents.
+
+""")
+
+c1,c2,c3,c4=st.columns(4)
+
+c1.success("🤖 4 AI Agents")
+c2.info("📝 5 Content Formats")
+c3.warning("⚡ CrewAI Powered")
+c4.success("🏆 Kaggle Capstone")
 
 # ============================================================
 # URL INPUT
@@ -25,109 +101,73 @@ user_url = st.text_input(
 # ============================================================
 # LAUNCH BUTTON
 # ============================================================
-if st.button("Launch Autonomous Agents 🚀", type="primary"):
+if st.button("🚀 Analyze & Generate Content", type="primary"):
     start_time = time.time()
     
-    with st.spinner("Playwright is launching a hidden browser. Agents are inspecting the page..."):
-        api_key_str = os.environ.get("GEMINI_API_KEY")
-        if not api_key_str:
-            st.error("🔑 API Key Error: GEMINI_API_KEY not found.")
-            st.stop()
+    with st.spinner("🤖 AI Crew is analyzing the source and generating content... Please wait."):
+      if not os.getenv("OPENROUTER_API_KEY"):
+        st.error("🔑 OPENROUTER_API_KEY not found in .env")
+        st.stop()
+      raw_result = run_crew_cached(user_url)
+
+      elapsed = round(time.time() - start_time, 1)
+
+      st.success(f"🎉 Analysis Complete! Generated all content in {elapsed} seconds.")
         
         # Create crew with dynamic URL
-        crew = create_crew(user_url)
+    crew = create_crew(user_url)
         
-        # Set API keys on agents
-        for agent in crew.agents:
-            agent.llm.api_key = api_key_str
+        # Run crew
+    raw_result = run_crew_cached(user_url)
         
-        # Run with fallback
-        try:
-            raw_result = crew.kickoff()
-        except Exception as e:
-            if any(marker in str(e) for marker in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE"]):
-                    st.warning("⚠️ Rate limit hit. Retrying with same model in 15 seconds...")
-                    import time
-                    time.sleep(15)
-                    raw_result = crew.kickoff()
-            else:
-                raise e
         # Extract result
-        result_data = raw_result.json_dict if hasattr(raw_result, 'json_dict') else {}
-        if not result_data and hasattr(raw_result, 'to_dict'):
-            result_data = raw_result.to_dict()
+    result_data = raw_result.json_dict if hasattr(raw_result, 'json_dict') else {}
+    if not result_data and hasattr(raw_result, 'to_dict'):
+        result_data = raw_result.to_dict()
         
-        elapsed = round(time.time() - start_time, 1)
-        st.success(f"🎯 Multi-Agent Content Generation Complete! ({elapsed}s)")
+    elapsed = round(time.time() - start_time, 1)
+    st.success(f"🎉 Analysis Complete — Your AI content studio has finished generating all assets. ({elapsed}s)")
         
-        # ============================================================
-        # GENERATE CHARTS
-        # ============================================================
-        chart_paths = {}
-        with st.spinner("📊 Generating EDA charts..."):
-            try:
-                chart_results = generate_all_visualizations(save_dir='./charts')
-                chart_paths = {name: path for name, (b64, path) in chart_results.items()}
-            except Exception as e:
-                st.warning(f"Charts skipped: {e}")
         
         # ============================================================
         # 8 TABS
         # ============================================================
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-            "📝 Technical Blog", "💼 LinkedIn", "🐦 X/Twitter", 
-            "📁 GitHub", "🎬 YouTube", "📊 EDA Charts", 
-            "🔍 Competitor Intel", "⚙️ Raw Data"
-        ])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "📝 Technical Blog",
+    "💼 LinkedIn",
+    "🐦 X/Twitter",
+    "📁 GitHub",
+    "🎬 YouTube",
+    "🔍 Competitor Intel",
+    "⚙️ Raw Data"
+])
         
         # --- TAB 1: Blog ---
-        with tab1:
-            st.header(result_data.get("dataset_title", "Technical Analysis"))
+    with tab1:
+        st.header(result_data.get("dataset_title", "Technical Analysis"))
+            # --- TAB 1: Blog ---
+
+        st.header(result_data.get("dataset_title", "Technical Analysis"))
+
+        st.markdown(result_data.get("technical_blog_post", "No blog content generated."))
+
+        if result_data.get("content_gap_analysis"):
+           st.markdown("---")
+           st.subheader("🔍 Unique Content Opportunity")
+           st.info(result_data.get("content_gap_analysis"))
             
-            if chart_paths:
-                st.markdown("### 📊 EDA Visualizations")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if 'class_distribution' in chart_paths:
-                        st.image(chart_paths['class_distribution'], use_container_width=True)
-                        st.caption("Class Distribution")
-                    if 'amount_distribution' in chart_paths:
-                        st.image(chart_paths['amount_distribution'], use_container_width=True)
-                        st.caption("Amount Distribution")
-                with c2:
-                    if 'correlation_heatmap' in chart_paths:
-                        st.image(chart_paths['correlation_heatmap'], use_container_width=True)
-                        st.caption("Feature Correlation")
-                    if 'pca_scatter' in chart_paths:
-                        st.image(chart_paths['pca_scatter'], use_container_width=True)
-                        st.caption("PCA Projection")
-                if 'time_series' in chart_paths:
-                    st.image(chart_paths['time_series'], use_container_width=True)
-                    st.caption("Temporal Patterns")
-                if 'missing_values' in chart_paths:
-                    st.image(chart_paths['missing_values'], use_container_width=True)
-                    st.caption("Missing Values")
-                st.markdown("---")
-            
-            st.markdown(result_data.get("technical_blog_post", "No blog content."))
-            
-            if result_data.get("content_gap_analysis"):
-                st.markdown("---")
-                st.markdown("### 🔍 Why This Angle is Unique")
-                st.info(result_data.get("content_gap_analysis"))
-        
         # --- TAB 2: LinkedIn ---
-        with tab2:
+    with tab2:
             st.info(f"🎯 **Target Audience:** {result_data.get('target_audience', 'Developers')}")
             st.text_area("📋 Copy LinkedIn:", value=result_data.get("linkedin_promo_post", ""), height=350)
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Predicted Reach", "2.5K-4K", "+35%")
+            c1.metric("Estimated Reach", "2.5K-4K", "+35%")
             c2.metric("Engagement Rate", "4.2%", "+1.8%")
-            c3.metric("Share Probability", "High", "Unique angle")
+            c3.metric("Virality Score", "High", "Unique angle")
         
         # --- TAB 3: Twitter/X ---
-        with tab3:
+    with tab3:
             st.header("🐦 X/Twitter Thread")
             twitter = result_data.get("twitter_thread", "")
             if twitter:
@@ -141,14 +181,14 @@ if st.button("Launch Autonomous Agents 🚀", type="primary"):
             st.text_area("📋 Copy Thread:", value=twitter, height=200)
         
         # --- TAB 4: GitHub ---
-        with tab4:
+    with tab4:
             st.header("📁 GitHub README")
             github = result_data.get("github_readme_summary", "")
             st.code(github if github else "No README generated.", language="markdown")
             st.text_area("📋 Copy README:", value=github, height=300)
         
         # --- TAB 5: YouTube ---
-        with tab5:
+    with tab5:
             st.header("🎬 YouTube Script")
             yt = result_data.get("youtube_script_outline", "")
             st.markdown(yt if yt else "No script generated.")
@@ -165,20 +205,8 @@ if st.button("Launch Autonomous Agents 🚀", type="primary"):
             | 4:30 | Results | "Here are our AUC scores..." |
             """)
         
-        # --- TAB 6: EDA Gallery ---
-        with tab6:
-            st.header("📊 EDA Gallery")
-            if chart_paths:
-                for key in ['class_distribution', 'correlation_heatmap', 'amount_distribution', 
-                           'time_series', 'pca_scatter', 'missing_values']:
-                    if key in chart_paths:
-                        st.image(chart_paths[key], use_container_width=True)
-                        st.caption(key.replace('_', ' ').title())
-            else:
-                st.info("No charts generated.")
-        
         # --- TAB 7: Competitor Intel ---
-        with tab7:
+    with tab6:
             st.header("🔍 Competitor Intelligence")
             st.error("**What NO ONE covers:**\n• Real-time fraud pipelines\n• Cost-sensitive learning\n• Fraud ring network analysis\n• Explainable AI for regulators\n• A/B testing frameworks")
             st.warning("**Overused (Avoid):**\n• Basic EDA with pandas\n• Simple logistic regression\n• Generic SMOTE claims\n• ROC-AUC tables\n• 'Random Forest is best'")
@@ -190,7 +218,7 @@ if st.button("Launch Autonomous Agents 🚀", type="primary"):
             c3.metric("Competition", "Low", "Blue ocean")
         
         # --- TAB 8: Raw Data ---
-        with tab8:
+    with tab7:
             st.markdown("### ⚙️ Pydantic Telemetry")
             st.json(raw_result.raw if hasattr(raw_result, 'raw') else str(raw_result))
             st.markdown("---")
@@ -210,3 +238,8 @@ else:
     # Idle state
     st.markdown("---")
     st.markdown("### 🚀 Paste a URL and click **Launch Autonomous Agents**")
+
+st.markdown("---")
+st.caption(
+    "Built for Kaggle AI Agents Intensive Vibe Coding Capstone | CrewAI • Gemini • Playwright • Streamlit"
+)

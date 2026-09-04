@@ -4,7 +4,8 @@ import numpy as np
 import os
 from io import BytesIO
 import base64
-
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 plt.style.use('dark_background')
 sns.set_palette("husl")
 
@@ -175,7 +176,7 @@ def generate_all_visualizations(dataset_info=None, save_dir='./charts'):
     os.makedirs(save_dir, exist_ok=True)
     charts = {}
     charts['class_distribution'] = generate_class_distribution_pie(save_dir=save_dir)
-    charts['correlation_heatmap'] = generate_correlation_heatmap(save_dir=save_dir)
+    #charts['correlation_heatmap'] = generate_correlation_heatmap(save_dir=save_dir)
     charts['amount_distribution'] = generate_amount_distribution(save_dir=save_dir)
     charts['time_series'] = generate_time_series(save_dir=save_dir)
     charts['pca_scatter'] = generate_pca_scatter(save_dir=save_dir)
