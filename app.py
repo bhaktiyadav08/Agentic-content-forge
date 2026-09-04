@@ -159,7 +159,24 @@ def _playwright_scrape(url, return_dict):
             except Exception:
                 pass
 
+def ensure_playwright_browser():
+    """Install Chromium only when Playwright is needed."""
 
+    with sync_playwright() as p:
+        browser_path = Path(p.chromium.executable_path)
+
+    if not browser_path.exists():
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "playwright",
+                "install",
+                "chromium"
+            ],
+            check=True,
+            timeout=180
+        )
 @tool("Universal Tech Webpage Scraper")
 def scrape_technical_url(url: str) -> str:
     """Scrape a technical URL using HTTP first and Playwright as a fallback."""
@@ -203,8 +220,11 @@ def scrape_technical_url(url: str) -> str:
         http_error = "HTTP request returned insufficient content."
 
 
-    # 2. Try Playwright
+      # 2. Try Playwright
     try:
+
+        ensure_playwright_browser()
+
         with sync_playwright() as p:
 
             browser = p.chromium.launch(
@@ -216,7 +236,17 @@ def scrape_technical_url(url: str) -> str:
                 ]
             )
 
-            page = browser.new_page()
+            page = browser.new_page(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                viewport={
+                    "width": 1366,
+                    "height": 768
+                }
+            )
 
             page.goto(
                 url,
@@ -226,7 +256,9 @@ def scrape_technical_url(url: str) -> str:
 
             page.wait_for_timeout(5000)
 
-            text = page.locator("body").inner_text(timeout=10000)
+            text = page.locator("body").inner_text(
+                timeout=10000
+            )
 
             browser.close()
 
@@ -244,12 +276,12 @@ def scrape_technical_url(url: str) -> str:
             return "Scraper retrieved the page but found insufficient text."
 
     except Exception as e:
+
         return (
             f"SCRAPER FAILED. "
             f"HTTP error: {http_error}. "
             f"Playwright error: {str(e)}"
         )
-        return f"Scraping error: {str(e)}"
 # ============================================================
 # 4. AGENTS
 # ============================================================
