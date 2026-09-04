@@ -121,7 +121,7 @@ def _isolated_playwright_worker(url, return_dict):
             browser.close()
 
     except Exception as e:
-        return_dict["error"] = str(e)
+        return_dict["error"] = repr(e)
 
         if browser:
             try:
@@ -199,6 +199,7 @@ def scrape_technical_url(url: str) -> str:
                 return final_clean_text[:12000]
 
         if "error" in return_dict:
+            print("PLAYWRIGHT ERROR:", return_dict["error"])
             return f"Scraping error: {return_dict['error']}"
 
         return "Failed to retrieve meaningful page content."
