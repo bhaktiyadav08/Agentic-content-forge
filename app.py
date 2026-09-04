@@ -162,11 +162,11 @@ def _playwright_scrape(url, return_dict):
 
 @tool("Universal Tech Webpage Scraper")
 def scrape_technical_url(url: str) -> str:
+    """Scrape a technical webpage and return its cleaned text content."""
 
     # -------------------------------------------------
     # METHOD 1: Normal HTTP request
     # -------------------------------------------------
-
     http_content = _http_scrape(url)
 
     if http_content:
