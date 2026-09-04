@@ -4,10 +4,7 @@ import time
 from dotenv import load_dotenv
 
 load_dotenv()
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def run_crew_cached(url):
-    crew = create_crew(url)
-    return crew.kickoff()
+
 from app import create_crew, TechnicalInsightSchema
 
 
