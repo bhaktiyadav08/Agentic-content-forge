@@ -162,49 +162,73 @@ def _playwright_scrape(url, return_dict):
 
 @tool("Universal Tech Webpage Scraper")
 def scrape_technical_url(url: str) -> str:
-    """Scrape a technical webpage and return its cleaned text content."""
+    """Scrape a technical URL using HTTP first and Playwright as a fallback."""
 
-    # -------------------------------------------------
-    # METHOD 1: Normal HTTP request
-    # -------------------------------------------------
-    http_content = _http_scrape(url)
-
-    if http_content:
-
-        return http_content
-
-
-    # -------------------------------------------------
-    # METHOD 2: Browser rendering
-    # -------------------------------------------------
-
+    # 1. Try normal HTTP
     try:
+        import requests
 
-        manager = multiprocessing.Manager()
-
-        return_dict = manager.dict()
-
-        process = multiprocessing.Process(
-            target=_playwright_scrape,
-            args=(url, return_dict)
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            },
+            timeout=20
         )
 
-        process.start()
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, "html.parser")
 
-        process.join(timeout=55)
+            for element in soup(
+                ["script", "style", "footer", "nav", "header", "aside", "svg"]
+            ):
+                element.decompose()
 
-        if process.is_alive():
+            text = soup.get_text(separator="\n")
 
-            process.terminate()
-            process.join()
+            lines = [
+                line.strip()
+                for line in text.splitlines()
+                if line.strip()
+            ]
 
-            return (
-                "Scraping error: The webpage took too long to load."
+            cleaned = "\n".join(lines)
+
+            if len(cleaned) >= 500:
+                return cleaned[:12000]
+
+    except Exception as e:
+        http_error = str(e)
+    else:
+        http_error = "HTTP request returned insufficient content."
+
+
+    # 2. Try Playwright
+    try:
+        with sync_playwright() as p:
+
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu"
+                ]
             )
 
-        text = return_dict.get("text", "").strip()
+            page = browser.new_page()
 
-        if text:
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=40000
+            )
+
+            page.wait_for_timeout(5000)
+
+            text = page.locator("body").inner_text(timeout=10000)
+
+            browser.close()
 
             lines = [
                 line.strip()
@@ -215,22 +239,16 @@ def scrape_technical_url(url: str) -> str:
             cleaned = "\n".join(lines)
 
             if len(cleaned) >= 200:
-
                 return cleaned[:12000]
 
-
-        error = return_dict.get("error")
-
-        if error:
-
-            return f"Scraping error: {error}"
-
-
-        return "Failed to retrieve meaningful page content."
-
+            return "Scraper retrieved the page but found insufficient text."
 
     except Exception as e:
-
+        return (
+            f"SCRAPER FAILED. "
+            f"HTTP error: {http_error}. "
+            f"Playwright error: {str(e)}"
+        )
         return f"Scraping error: {str(e)}"
 # ============================================================
 # 4. AGENTS
